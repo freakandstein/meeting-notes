@@ -8,10 +8,12 @@ module.exports = {
     sdkVersion: '54.0.0',
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'com.yourcompany.meetingnotes',
+      bundleIdentifier: 'com.tio.meetingnotes.ios',
+      googleServicesFile: './GoogleService-Info.plist',
     },
     android: {
-      package: 'com.yourcompany.meetingnotes',
+      package: 'com.tio.meetingnotes',
+      googleServicesFile: './google-services.json',
       adaptiveIcon: {
         foregroundImage: './app/assets/adaptive-icon.png',
         backgroundColor: '#ffffff',
@@ -24,6 +26,11 @@ module.exports = {
     ],
     experiments: {
       typedRoutes: true,
+    },
+    extra: {
+      eas: {
+        projectId: 'd7c4f0ad-dbc2-47f2-a7ae-8a0953bdb298',
+      },
     },
   },
 };

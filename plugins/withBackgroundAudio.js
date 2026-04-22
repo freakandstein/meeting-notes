@@ -53,6 +53,10 @@ const withAndroidBackgroundAudio = (config) => {
       application.service = [];
     }
 
+    // Allow cleartext HTTP traffic (needed for local dev server over HTTP)
+    if (!application.$) application.$ = {};
+    application.$['android:usesCleartextTraffic'] = 'true';
+
     const serviceExists = application.service.find(
       (s) => s.$?.['android:name'] === 'expo.modules.av.RecordingService'
     );

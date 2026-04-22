@@ -4,7 +4,7 @@ import {
   InterruptionModeAndroid,
   InterruptionModeIOS,
 } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '../lib/supabase';
 
 export type RecordingState = 'idle' | 'recording' | 'uploading';

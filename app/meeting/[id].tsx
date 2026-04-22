@@ -83,7 +83,7 @@ export default function MeetingDetailScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Transcript</Text>
         <Text style={styles.body}>
-          {meeting.trasncript ?? 'Transcript not available yet.'}
+          {meeting.transcript ?? 'Transcript not available yet.'}
         </Text>
       </View>
     </ScrollView>

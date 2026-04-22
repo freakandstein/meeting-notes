@@ -32,3 +32,13 @@ async def send_push_notification(
             },
         )
         response.raise_for_status()
+        result = response.json()
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Expo push response: %s", result)
+        # data can be a dict (single notification) or list (batch)
+        data_field = result.get("data", [])
+        items = [data_field] if isinstance(data_field, dict) else data_field
+        for item in items:
+            if isinstance(item, dict) and item.get("status") == "error":
+                logger.error("Push error: %s", item)

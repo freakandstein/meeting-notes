@@ -86,12 +86,6 @@ export default function HomeScreen() {
         </Text>
       </TouchableOpacity>
 
-      {state === 'idle' && (
-        <Text style={styles.hint}>
-          You can background the app — recording continues.
-        </Text>
-      )}
-
       {state === 'recording' && (
         <View style={styles.recordingIndicator}>
           <View style={styles.dot} />

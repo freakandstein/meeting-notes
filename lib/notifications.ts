@@ -1,4 +1,5 @@
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 // Configure how incoming notifications are displayed while app is foregrounded
@@ -38,6 +39,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
   }
 
-  const tokenData = await Notifications.getExpoPushTokenAsync();
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+  const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
   return tokenData.data;
 }
