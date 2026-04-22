@@ -9,7 +9,7 @@ import * as KeepAwake from 'expo-keep-awake';
 import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 
-const { RecordingServiceModule } = NativeModules;
+const { RecordingServiceModule, LiveActivityModule } = NativeModules;
 
 export type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading';
 
@@ -94,6 +94,11 @@ export function useRecording() {
       // Give iOS time to activate the audio session before preparing recorder
       await new Promise((resolve) => setTimeout(resolve, 200));
 
+      // Start Live Activity on iOS
+      if (Platform.OS === 'ios') {
+        LiveActivityModule?.startActivity(0);
+      }
+
       const { recording } = await Audio.Recording.createAsync(
         Platform.OS === 'ios'
           ? {
@@ -141,6 +146,9 @@ export function useRecording() {
       if (Platform.OS === 'android') {
         RecordingServiceModule?.pauseRequest();
       }
+      if (Platform.OS === 'ios') {
+        LiveActivityModule?.updateActivity(true, 0);
+      }
       setState('paused');
     } catch (err) {
       console.warn('pauseRecording error:', err);
@@ -157,6 +165,9 @@ export function useRecording() {
       await recording.startAsync();
       if (Platform.OS === 'android') {
         RecordingServiceModule?.resumeRequest();
+      }
+      if (Platform.OS === 'ios') {
+        LiveActivityModule?.updateActivity(false, 0);
       }
       setState('recording');
     } catch (err) {
@@ -183,6 +194,10 @@ export function useRecording() {
       // Stop native foreground service
       if (Platform.OS === 'android') {
         RecordingServiceModule?.stop();
+      }
+      // End Live Activity on iOS
+      if (Platform.OS === 'ios') {
+        LiveActivityModule?.endActivity();
       }
       // Release wake lock after recording stops
       KeepAwake.deactivateKeepAwake('recording');

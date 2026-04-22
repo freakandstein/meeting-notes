@@ -10,6 +10,7 @@ module.exports = {
       supportsTablet: false,
       bundleIdentifier: 'com.tio.meetingnotes.ios',
       googleServicesFile: './GoogleService-Info.plist',
+      appleTeamId: 'G7935U62L4',
     },
     android: {
       package: 'com.tio.meetingnotes',
@@ -23,6 +24,7 @@ module.exports = {
       'expo-router',
       './plugins/withBackgroundAudio',
       './plugins/withRecordingService',
+      './plugins/withLiveActivity',
       'expo-notifications',
     ],
     experiments: {

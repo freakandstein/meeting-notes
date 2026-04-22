@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
+  DeviceEventEmitter,
+  NativeModules,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -73,10 +76,34 @@ export default function HomeScreen() {
     }
   }, [state]);
 
+  // iOS: sync elapsed time to Live Activity every second
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    if (state === 'recording') {
+      NativeModules.LiveActivityModule?.updateActivity(false, elapsed);
+    } else if (state === 'paused') {
+      NativeModules.LiveActivityModule?.updateActivity(true, elapsed);
+    }
+  }, [elapsed, state]);
+
   // Surface errors to the user
   useEffect(() => {
     if (error) Alert.alert('Error', error);
   }, [error]);
+
+  // iOS Live Activity button actions (pause/resume/stop deep links)
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const sub = DeviceEventEmitter.addListener(
+      'liveActivityAction',
+      ({ action }: { action: string }) => {
+        if (action === 'pause') pauseRecording();
+        else if (action === 'resume') resumeRecording();
+        else if (action === 'stop') stopRecording();
+      }
+    );
+    return () => sub.remove();
+  }, [pauseRecording, resumeRecording, stopRecording]);
 
   const handleRecordPress = async () => {
     if (state === 'idle') {

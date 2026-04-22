@@ -46,7 +46,9 @@ export default function RootLayout() {
       }
     );
 
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   return (
@@ -56,6 +58,7 @@ export default function RootLayout() {
         name="meeting/[id]"
         options={{ title: 'Meeting Detail', headerBackTitle: 'Back' }}
       />
+      <Stack.Screen name="liveactivity" options={{ headerShown: false, animation: 'none' }} />
     </Stack>
   );
 }
