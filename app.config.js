@@ -13,7 +13,7 @@ module.exports = {
     android: {
       package: 'com.yourcompany.meetingnotes',
       adaptiveIcon: {
-        foregroundImage: './assets/adaptive-icon.png',
+        foregroundImage: './app/assets/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
     },
