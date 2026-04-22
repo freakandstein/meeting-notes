@@ -22,6 +22,7 @@ module.exports = {
     plugins: [
       'expo-router',
       './plugins/withBackgroundAudio',
+      './plugins/withRecordingService',
       'expo-notifications',
     ],
     experiments: {

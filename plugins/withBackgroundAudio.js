@@ -46,6 +46,7 @@ const withAndroidBackgroundAudio = (config) => {
     addPermission('android.permission.RECORD_AUDIO');
     addPermission('android.permission.FOREGROUND_SERVICE');
     addPermission('android.permission.FOREGROUND_SERVICE_MICROPHONE');
+    addPermission('android.permission.WAKE_LOCK');
 
     // Add foreground service declaration to <application>
     const application = manifest.application[0];

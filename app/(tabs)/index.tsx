@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,26 +16,39 @@ export default function HomeScreen() {
   const [elapsed, setElapsed] = useState(0);
   const [pushToken, setPushToken] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number | null>(null);
 
   // Fetch Expo push token once on mount
   useEffect(() => {
     registerForPushNotifications().then(setPushToken);
   }, []);
 
-  // Keep a running timer while recording
+  // Timer based on wall-clock time so it stays accurate after backgrounding
   useEffect(() => {
     if (state === 'recording') {
-      intervalRef.current = setInterval(
-        () => setElapsed((s) => s + 1),
-        1000
-      );
+      startTimeRef.current = Date.now();
+      intervalRef.current = setInterval(() => {
+        if (startTimeRef.current) {
+          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+        }
+      }, 1000);
+
+      // When app comes back to foreground, recalculate elapsed immediately
+      const sub = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active' && startTimeRef.current) {
+          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+        }
+      });
+
+      return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        sub.remove();
+      };
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      startTimeRef.current = null;
       setElapsed(0);
     }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
   }, [state]);
 
   // Surface errors to the user

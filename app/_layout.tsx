@@ -5,6 +5,14 @@ import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { registerForPushNotifications } from '../lib/notifications';
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 export default function RootLayout() {
   const router = useRouter();
 
@@ -12,7 +20,20 @@ export default function RootLayout() {
     // Register device for push notifications on mount
     registerForPushNotifications();
 
-    // Deep link: when user taps a push notification, navigate to the meeting
+    // Cold start: app was killed, user tapped notification to open app
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const meetingId =
+        response.notification.request.content.data?.meeting_id as
+          | string
+          | undefined;
+      if (meetingId) {
+        // Delay to let the navigator mount first
+        setTimeout(() => router.push(`/meeting/${meetingId}`), 300);
+      }
+    });
+
+    // Foreground/background: user taps notification while app is open
     const subscription = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const meetingId =

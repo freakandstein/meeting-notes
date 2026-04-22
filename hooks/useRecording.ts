@@ -5,7 +5,11 @@ import {
   InterruptionModeIOS,
 } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as KeepAwake from 'expo-keep-awake';
+import { NativeModules, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+
+const { RecordingServiceModule } = NativeModules;
 
 export type RecordingState = 'idle' | 'recording' | 'uploading';
 
@@ -52,6 +56,12 @@ export function useRecording() {
       );
 
       recordingRef.current = recording;
+      // Start native foreground service (keeps process alive when screen locks)
+      if (Platform.OS === 'android') {
+        RecordingServiceModule?.start();
+      }
+      // Prevent CPU from sleeping while recording
+      await KeepAwake.activateKeepAwakeAsync('recording');
       setState('recording');
     } catch (err) {
       console.error('startRecording error:', err);
@@ -72,6 +82,13 @@ export function useRecording() {
         setState('uploading');
 
         await recording.stopAndUnloadAsync();
+
+        // Stop native foreground service
+        if (Platform.OS === 'android') {
+          RecordingServiceModule?.stop();
+        }
+        // Release wake lock after recording stops
+        KeepAwake.deactivateKeepAwake('recording');
 
         // Restore audio mode after recording
         await Audio.setAudioModeAsync({
@@ -131,6 +148,10 @@ export function useRecording() {
         setState('idle');
       } catch (err) {
         console.error('stopRecording error:', err);
+        if (Platform.OS === 'android') {
+          RecordingServiceModule?.stop();
+        }
+        KeepAwake.deactivateKeepAwake('recording');
         setError('Failed to upload or process recording.');
         recordingRef.current = null;
         setState('idle');
