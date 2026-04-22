@@ -16,6 +16,7 @@ import {
   loadMeetingsFromCache,
   saveMeetingsToCache,
 } from '../../lib/meetingStorage';
+import { getCachedPushToken } from '../../lib/notifications';
 import type { Meeting } from '../../types';
 
 // Supabase timestamps may lack 'Z' suffix — ensure they're parsed as UTC
@@ -36,9 +37,16 @@ export default function MeetingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchMeetings = useCallback(async () => {
+    const pushToken = await getCachedPushToken();
+    if (!pushToken) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     const { data, error } = await supabase
       .from('meetings')
       .select('*')
+      .eq('push_token', pushToken)
       .order('created_at', { ascending: false });
 
     if (error) {
