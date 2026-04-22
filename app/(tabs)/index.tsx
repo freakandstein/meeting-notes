@@ -9,6 +9,7 @@ import {
 import * as Crypto from 'expo-crypto';
 import { registerForPushNotifications } from '../../lib/notifications';
 import { formatDuration } from '../../lib/dateUtils';
+import { Colors } from '../../lib/constants';
 import { useRecording } from '../../hooks/useRecording';
 
 export default function HomeScreen() {
@@ -27,8 +28,15 @@ export default function HomeScreen() {
 
   const handleRecordPress = async () => {
     if (state === 'idle') {
+      if (!pushToken) {
+        Alert.alert(
+          'Not Ready',
+          'Push notifications are still registering. Please try again in a moment.'
+        );
+        return;
+      }
       meetingIdRef.current = Crypto.randomUUID();
-      await startRecording(meetingIdRef.current, pushToken ?? '');
+      await startRecording(meetingIdRef.current, pushToken);
     } else if (state === 'recording' || state === 'paused') {
       await stopRecording();
     }
@@ -112,13 +120,13 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f7fafc',
+    backgroundColor: Colors.background,
     padding: 24,
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#1a202c',
+    color: Colors.dark,
     marginBottom: 48,
   },
   timer: {
@@ -126,24 +134,24 @@ const styles = StyleSheet.create({
     fontWeight: '200',
     // @ts-ignore — fontVariant is valid on iOS/Android
     fontVariant: ['tabular-nums'],
-    color: '#e53e3e',
+    color: Colors.danger,
     marginBottom: 32,
   },
   timerPaused: {
-    color: '#ed8936',
+    color: Colors.warning,
   },
   status: {
     fontSize: 16,
-    color: '#718096',
+    color: Colors.muted,
     marginBottom: 24,
   },
   button: {
-    backgroundColor: '#3182ce',
+    backgroundColor: Colors.primary,
     width: 240,
     paddingVertical: 20,
     borderRadius: 50,
     alignItems: 'center',
-    shadowColor: '#3182ce',
+    shadowColor: Colors.primary,
     shadowOpacity: 0.4,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
@@ -151,19 +159,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   buttonSecondary: {
-    backgroundColor: '#ed8936',
-    shadowColor: '#ed8936',
+    backgroundColor: Colors.warning,
+    shadowColor: Colors.warning,
   },
   buttonRecording: {
-    backgroundColor: '#e53e3e',
-    shadowColor: '#e53e3e',
+    backgroundColor: Colors.danger,
+    shadowColor: Colors.danger,
   },
   buttonDisabled: {
-    backgroundColor: '#a0aec0',
-    shadowColor: '#a0aec0',
+    backgroundColor: Colors.faint,
+    shadowColor: Colors.faint,
   },
   buttonText: {
-    color: '#fff',
+    color: Colors.white,
     fontSize: 18,
     fontWeight: '600',
   },
@@ -177,17 +185,17 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#e53e3e',
+    backgroundColor: Colors.danger,
   },
   dotPaused: {
-    backgroundColor: '#ed8936',
+    backgroundColor: Colors.warning,
   },
   recordingText: {
     fontSize: 13,
-    color: '#e53e3e',
+    color: Colors.danger,
     fontWeight: '500',
   },
   pausedText: {
-    color: '#ed8936',
+    color: Colors.warning,
   },
 });

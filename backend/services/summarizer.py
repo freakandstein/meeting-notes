@@ -21,4 +21,9 @@ async def summarize_transcript(transcript: str) -> str:
         ],
         temperature=0.3,
     )
-    return response.choices[0].message.content
+    if not response.choices:
+        raise RuntimeError("OpenAI returned no choices (possible content policy violation).")
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError("OpenAI returned null content.")
+    return content

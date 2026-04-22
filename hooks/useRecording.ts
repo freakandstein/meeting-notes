@@ -14,8 +14,21 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 import * as KeepAwake from 'expo-keep-awake';
 import { supabase } from '../lib/supabase';
+import {
+  AUDIO_SESSION_WARMUP_MS,
+  EVENTS,
+  KEEP_AWAKE_TAG,
+  SIGNED_URL_TTL,
+  STORAGE_BUCKET,
+  STORAGE_PATH_PREFIX,
+} from '../lib/constants';
 
 const { RecordingServiceModule, LiveActivityModule } = NativeModules;
+
+const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+if (!apiUrl) {
+  throw new Error('EXPO_PUBLIC_API_URL environment variable is not set.');
+}
 
 export type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading';
 
@@ -108,7 +121,7 @@ export function useRecording() {
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
     const sub = DeviceEventEmitter.addListener(
-      'liveActivityAction',
+      EVENTS.LIVE_ACTIVITY_ACTION,
       ({ action }: { action: string }) => {
         if (action === 'pause') pauseRecording();
         else if (action === 'resume') resumeRecording();
@@ -124,7 +137,7 @@ export function useRecording() {
     if (Platform.OS !== 'android' || !RecordingServiceModule) return;
     const emitter = new NativeEventEmitter(RecordingServiceModule);
     const sub = emitter.addListener(
-      'onRecordingStateChange',
+      EVENTS.RECORDING_STATE_CHANGE,
       async ({ state: nativeState }: { state: string }) => {
         const recording = recordingRef.current;
         if (!recording) return;
@@ -132,15 +145,15 @@ export function useRecording() {
           try {
             await recording.pauseAsync();
             setState('paused');
-          } catch (e) {
-            console.warn('pauseAsync error', e);
+          } catch {
+            // Ignore — state already paused or recording ended
           }
         } else if (nativeState === 'resume_requested') {
           try {
             await recording.startAsync();
             setState('recording');
-          } catch (e) {
-            console.warn('resumeAsync error', e);
+          } catch {
+            // Ignore — state already recording or recording ended
           }
         } else if (nativeState === 'stop_requested') {
           stopRecordingRef.current?.();
@@ -174,7 +187,7 @@ export function useRecording() {
       });
 
       // Give iOS time to activate the audio session before preparing recorder
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, AUDIO_SESSION_WARMUP_MS));
 
       // Start Live Activity on iOS
       if (Platform.OS === 'ios') {
@@ -209,10 +222,9 @@ export function useRecording() {
         RecordingServiceModule?.start();
       }
       // Prevent CPU from sleeping while recording
-      await KeepAwake.activateKeepAwakeAsync('recording');
+      await KeepAwake.activateKeepAwakeAsync(KEEP_AWAKE_TAG);
       setState('recording');
     } catch (err) {
-      console.error('startRecording error:', err);
       setError('Failed to start recording.');
     }
   }, []);
@@ -226,8 +238,8 @@ export function useRecording() {
         RecordingServiceModule?.pauseRequest();
       }
       setState('paused');
-    } catch (err) {
-      console.warn('pauseRecording error:', err);
+    } catch {
+      // Ignore — recording may have already stopped
     }
   }, []);
 
@@ -240,8 +252,8 @@ export function useRecording() {
         RecordingServiceModule?.resumeRequest();
       }
       setState('recording');
-    } catch (err) {
-      console.warn('resumeRecording error:', err);
+    } catch {
+      // Ignore — recording may have already stopped
     }
   }, []);
 
@@ -270,7 +282,7 @@ export function useRecording() {
         LiveActivityModule?.endActivity();
       }
       // Release wake lock after recording stops
-      KeepAwake.deactivateKeepAwake('recording');
+      KeepAwake.deactivateKeepAwake(KEEP_AWAKE_TAG);
 
       // Restore audio mode after recording
       await Audio.setAudioModeAsync({
@@ -287,14 +299,14 @@ export function useRecording() {
       // Upload to Supabase Storage
       const ext = Platform.OS === 'ios' ? 'wav' : 'm4a';
       const contentType = Platform.OS === 'ios' ? 'audio/wav' : 'audio/m4a';
-      const filePath = `meetings/${meetingId}.${ext}`;
+      const filePath = `${STORAGE_PATH_PREFIX}${meetingId}.${ext}`;
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
       const arrayBuffer = base64ToArrayBuffer(base64);
 
       const { error: uploadError } = await supabase.storage
-        .from('audio_meeting_notes')
+        .from(STORAGE_BUCKET)
         .upload(filePath, arrayBuffer, {
           contentType,
           upsert: false,
@@ -305,15 +317,14 @@ export function useRecording() {
       // Generate a signed URL valid for 7 days
       const { data: signedData, error: signError } =
         await supabase.storage
-          .from('audio_meeting_notes')
-          .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+          .from(STORAGE_BUCKET)
+          .createSignedUrl(filePath, SIGNED_URL_TTL);
 
       if (signError || !signedData?.signedUrl) {
         throw signError ?? new Error('Failed to get signed URL.');
       }
 
       // Notify backend to process the meeting
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL as string;
       const response = await fetch(`${apiUrl}/process-meeting`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -331,11 +342,10 @@ export function useRecording() {
       recordingRef.current = null;
       setState('idle');
     } catch (err) {
-      console.error('stopRecording error:', err);
       if (Platform.OS === 'android') {
         RecordingServiceModule?.stop();
       }
-      KeepAwake.deactivateKeepAwake('recording');
+      KeepAwake.deactivateKeepAwake(KEEP_AWAKE_TAG);
       setError('Failed to upload or process recording.');
       recordingRef.current = null;
       setState('idle');

@@ -2,17 +2,9 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Colors, NOTIFICATION_VIBRATION } from './constants';
 
 const PUSH_TOKEN_KEY = 'push_token';
-
-// Configure how incoming notifications are displayed while app is foregrounded
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
 
 /**
  * Requests notification permissions and returns the Expo push token string,
@@ -37,8 +29,8 @@ export async function registerForPushNotifications(): Promise<string | null> {
     await Notifications.setNotificationChannelAsync('default', {
       name: 'MeetingNotes',
       importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#3182ce',
+      vibrationPattern: NOTIFICATION_VIBRATION,
+      lightColor: Colors.primary,
     });
   }
 

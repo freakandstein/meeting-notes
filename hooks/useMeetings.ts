@@ -10,6 +10,7 @@ export function useMeetings() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchMeetings = useCallback(async () => {
     const pushToken = await getCachedPushToken();
@@ -19,18 +20,18 @@ export function useMeetings() {
       return;
     }
 
-    const { data, error } = await supabase
+    const { data, error: fetchError } = await supabase
       .from('meetings')
       .select('*')
       .eq('push_token', pushToken)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('fetchMeetings error:', JSON.stringify(error));
-    }
-    if (!error && data) {
+    if (fetchError) {
+      setError('Failed to load meetings. Pull down to retry.');
+    } else if (data) {
       const fetched = data as Meeting[];
       setMeetings(fetched);
+      setError(null);
       await saveMeetingsToCache(fetched);
     }
     setLoading(false);
@@ -39,12 +40,16 @@ export function useMeetings() {
 
   // Show cache immediately, then refresh from network
   useEffect(() => {
-    loadMeetingsFromCache().then((cached) => {
-      if (cached.length > 0) {
-        setMeetings(cached);
-        setLoading(false);
-      }
-    });
+    loadMeetingsFromCache()
+      .then((cached) => {
+        if (cached.length > 0) {
+          setMeetings(cached);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        // Cache unavailable — proceed with network fetch
+      });
     fetchMeetings();
   }, [fetchMeetings]);
 
@@ -68,5 +73,5 @@ export function useMeetings() {
     fetchMeetings();
   }, [fetchMeetings]);
 
-  return { meetings, loading, refreshing, refresh };
+  return { meetings, loading, refreshing, refresh, error };
 }

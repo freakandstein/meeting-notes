@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
+
+logger = logging.getLogger(__name__)
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
@@ -33,8 +37,6 @@ async def send_push_notification(
         )
         response.raise_for_status()
         result = response.json()
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info("Expo push response: %s", result)
         # data can be a dict (single notification) or list (batch)
         data_field = result.get("data", [])

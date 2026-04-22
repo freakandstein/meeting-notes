@@ -10,22 +10,31 @@ import {
 import { useRouter } from 'expo-router';
 import { useMeetings } from '../../hooks/useMeetings';
 import { parseSupabaseDate } from '../../lib/dateUtils';
+import { Colors } from '../../lib/constants';
 import type { Meeting } from '../../types';
 
 const STATUS_COLOR: Record<Meeting['status'], string> = {
-  processing: '#d69e2e',
-  completed: '#38a169',
-  failed: '#e53e3e',
+  processing: Colors.processingBadge,
+  completed: Colors.success,
+  failed: Colors.danger,
 };
 
 export default function MeetingsScreen() {
   const router = useRouter();
-  const { meetings, loading, refreshing, refresh } = useMeetings();
+  const { meetings, loading, refreshing, refresh, error } = useMeetings();
 
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#3182ce" />
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>{error}</Text>
       </View>
     );
   }
@@ -35,7 +44,7 @@ export default function MeetingsScreen() {
       data={meetings}
       keyExtractor={(item) => item.id}
       contentContainerStyle={[
-        { flexGrow: 1 },
+        styles.flexGrow,
         meetings.length === 0 ? styles.emptyContainer : styles.list,
       ]}
       refreshControl={
@@ -107,21 +116,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
+  flexGrow: {
+    flexGrow: 1,
+  },
   emptyContainer: {
     flex: 1,
   },
   emptyText: {
-    color: '#a0aec0',
+    color: Colors.faint,
     fontSize: 15,
     textAlign: 'center',
     lineHeight: 24,
+  },
+  errorText: {
+    color: Colors.danger,
+    fontSize: 15,
+    textAlign: 'center',
   },
   list: {
     padding: 16,
     gap: 12,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.white,
     borderRadius: 12,
     padding: 16,
     shadowColor: '#000',
@@ -142,7 +159,7 @@ const styles = StyleSheet.create({
   date: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#2d3748',
+    color: Colors.darkMid,
     flex: 1,
     marginRight: 8,
   },
@@ -152,7 +169,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   badgeText: {
-    color: '#fff',
+    color: Colors.white,
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -160,12 +177,12 @@ const styles = StyleSheet.create({
   },
   summary: {
     fontSize: 13,
-    color: '#718096',
+    color: Colors.muted,
     lineHeight: 19,
   },
   summaryPlaceholder: {
     fontSize: 13,
-    color: '#a0aec0',
+    color: Colors.faint,
     fontStyle: 'italic',
   },
 });

@@ -8,6 +8,7 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import { useMeeting } from '../../hooks/useMeeting';
 import { parseSupabaseDate } from '../../lib/dateUtils';
+import { Colors } from '../../lib/constants';
 
 export default function MeetingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -16,7 +17,7 @@ export default function MeetingDetailScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#3182ce" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -72,11 +73,11 @@ const styles = StyleSheet.create({
   },
   notFound: {
     fontSize: 15,
-    color: '#718096',
+    color: Colors.muted,
   },
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.white,
   },
   content: {
     padding: 20,
@@ -84,7 +85,7 @@ const styles = StyleSheet.create({
   },
   timestamp: {
     fontSize: 13,
-    color: '#a0aec0',
+    color: Colors.faint,
     marginBottom: 24,
   },
   section: {
@@ -93,15 +94,15 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1a202c',
+    color: Colors.dark,
     marginBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: Colors.border,
     paddingBottom: 8,
   },
   body: {
     fontSize: 15,
-    color: '#4a5568',
+    color: Colors.textMid,
     lineHeight: 26,
   },
 });
