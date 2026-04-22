@@ -99,9 +99,10 @@ export default function MeetingsScreen() {
     <FlatList
       data={meetings}
       keyExtractor={(item) => item.id}
-      contentContainerStyle={
-        meetings.length === 0 ? styles.emptyContainer : styles.list
-      }
+      contentContainerStyle={[
+        { flexGrow: 1 },
+        meetings.length === 0 ? styles.emptyContainer : styles.list,
+      ]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}

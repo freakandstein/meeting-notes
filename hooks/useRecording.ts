@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Audio,
   InterruptionModeAndroid,
@@ -6,12 +6,12 @@ import {
 } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as KeepAwake from 'expo-keep-awake';
-import { NativeModules, Platform } from 'react-native';
+import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 const { RecordingServiceModule } = NativeModules;
 
-export type RecordingState = 'idle' | 'recording' | 'uploading';
+export type RecordingState = 'idle' | 'recording' | 'paused' | 'uploading';
 
 /**
  * Decodes a base64 string into an ArrayBuffer for Supabase Storage upload.
@@ -29,10 +29,50 @@ export function useRecording() {
   const [state, setState] = useState<RecordingState>('idle');
   const [error, setError] = useState<string | null>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  // Stored at start time so pause/resume handlers always have access
+  const meetingIdRef = useRef<string>('');
+  const pushTokenRef = useRef<string>('');
+  // Mutable ref so the NativeEventEmitter listener can always call the latest stopRecording
+  const stopRecordingRef = useRef<(() => void) | null>(null);
 
-  const startRecording = useCallback(async () => {
+  // Android: listen to native events from the foreground service (pause/resume
+  // initiated by notification action buttons while the app is backgrounded).
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !RecordingServiceModule) return;
+    const emitter = new NativeEventEmitter(RecordingServiceModule);
+    const sub = emitter.addListener(
+      'onRecordingStateChange',
+      async ({ state: nativeState }: { state: string }) => {
+        const recording = recordingRef.current;
+        if (!recording) return;
+        if (nativeState === 'pause_requested') {
+          try {
+            await recording.pauseAsync();
+            setState('paused');
+          } catch (e) {
+            console.warn('pauseAsync error', e);
+          }
+        } else if (nativeState === 'resume_requested') {
+          try {
+            await recording.startAsync();
+            setState('recording');
+          } catch (e) {
+            console.warn('resumeAsync error', e);
+          }
+        } else if (nativeState === 'stop_requested') {
+          // Trigger the full stop+upload flow via a ref callback
+          stopRecordingRef.current?.();
+        }
+      }
+    );
+    return () => sub.remove();
+  }, []);
+
+  const startRecording = useCallback(async (meetingId: string, pushToken: string) => {
     try {
       setError(null);
+      meetingIdRef.current = meetingId;
+      pushTokenRef.current = pushToken;
 
       const { granted } = await Audio.requestPermissionsAsync();
       if (!granted) {
@@ -91,97 +131,136 @@ export function useRecording() {
   }, []);
 
   /**
+   * Pauses the active recording (also updates the notification action button).
+   */
+  const pauseRecording = useCallback(async () => {
+    const recording = recordingRef.current;
+    if (!recording) return;
+    try {
+      await recording.pauseAsync();
+      if (Platform.OS === 'android') {
+        RecordingServiceModule?.pauseRequest();
+      }
+      setState('paused');
+    } catch (err) {
+      console.warn('pauseRecording error:', err);
+    }
+  }, []);
+
+  /**
+   * Resumes a paused recording.
+   */
+  const resumeRecording = useCallback(async () => {
+    const recording = recordingRef.current;
+    if (!recording) return;
+    try {
+      await recording.startAsync();
+      if (Platform.OS === 'android') {
+        RecordingServiceModule?.resumeRequest();
+      }
+      setState('recording');
+    } catch (err) {
+      console.warn('resumeRecording error:', err);
+    }
+  }, []);
+
+  /**
    * Stops the recording, uploads the audio to Supabase Storage,
    * then calls the backend API to kick off processing.
+   * meetingId and pushToken were captured at startRecording time.
    */
-  const stopRecording = useCallback(
-    async (meetingId: string, pushToken: string): Promise<void> => {
-      const recording = recordingRef.current;
-      if (!recording) return;
+  const stopRecording = useCallback(async (): Promise<void> => {
+    const recording = recordingRef.current;
+    if (!recording) return;
+    const meetingId = meetingIdRef.current;
+    const pushToken = pushTokenRef.current;
 
-      try {
-        setState('uploading');
+    try {
+      setState('uploading');
 
-        await recording.stopAndUnloadAsync();
+      await recording.stopAndUnloadAsync();
 
-        // Stop native foreground service
-        if (Platform.OS === 'android') {
-          RecordingServiceModule?.stop();
-        }
-        // Release wake lock after recording stops
-        KeepAwake.deactivateKeepAwake('recording');
-
-        // Restore audio mode after recording
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          staysActiveInBackground: false,
-        });
-
-        const uri = recording.getURI();
-        if (!uri) throw new Error('No recording URI.');
-
-        const fileInfo = await FileSystem.getInfoAsync(uri);
-        if (!fileInfo.exists) throw new Error('Recording file not found.');
-
-        // Upload to Supabase Storage
-        const ext = Platform.OS === 'ios' ? 'wav' : 'm4a';
-        const contentType = Platform.OS === 'ios' ? 'audio/wav' : 'audio/m4a';
-        const filePath = `meetings/${meetingId}.${ext}`;
-        const base64 = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        const arrayBuffer = base64ToArrayBuffer(base64);
-
-        const { error: uploadError } = await supabase.storage
-          .from('audio_meeting_notes')
-          .upload(filePath, arrayBuffer, {
-            contentType,
-            upsert: false,
-          });
-
-        if (uploadError) throw uploadError;
-
-        // Generate a signed URL valid for 7 days
-        const { data: signedData, error: signError } =
-          await supabase.storage
-            .from('audio_meeting_notes')
-            .createSignedUrl(filePath, 60 * 60 * 24 * 7);
-
-        if (signError || !signedData?.signedUrl) {
-          throw signError ?? new Error('Failed to get signed URL.');
-        }
-
-        // Notify backend to process the meeting
-        const apiUrl = process.env.EXPO_PUBLIC_API_URL as string;
-        const response = await fetch(`${apiUrl}/process-meeting`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            audio_url: signedData.signedUrl,
-            meeting_id: meetingId,
-            push_token: pushToken,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Backend responded with ${response.status}`);
-        }
-
-        recordingRef.current = null;
-        setState('idle');
-      } catch (err) {
-        console.error('stopRecording error:', err);
-        if (Platform.OS === 'android') {
-          RecordingServiceModule?.stop();
-        }
-        KeepAwake.deactivateKeepAwake('recording');
-        setError('Failed to upload or process recording.');
-        recordingRef.current = null;
-        setState('idle');
+      // Stop native foreground service
+      if (Platform.OS === 'android') {
+        RecordingServiceModule?.stop();
       }
-    },
-    []
-  );
+      // Release wake lock after recording stops
+      KeepAwake.deactivateKeepAwake('recording');
 
-  return { state, error, startRecording, stopRecording };
+      // Restore audio mode after recording
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+      });
+
+      const uri = recording.getURI();
+      if (!uri) throw new Error('No recording URI.');
+
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) throw new Error('Recording file not found.');
+
+      // Upload to Supabase Storage
+      const ext = Platform.OS === 'ios' ? 'wav' : 'm4a';
+      const contentType = Platform.OS === 'ios' ? 'audio/wav' : 'audio/m4a';
+      const filePath = `meetings/${meetingId}.${ext}`;
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const arrayBuffer = base64ToArrayBuffer(base64);
+
+      const { error: uploadError } = await supabase.storage
+        .from('audio_meeting_notes')
+        .upload(filePath, arrayBuffer, {
+          contentType,
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Generate a signed URL valid for 7 days
+      const { data: signedData, error: signError } =
+        await supabase.storage
+          .from('audio_meeting_notes')
+          .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+
+      if (signError || !signedData?.signedUrl) {
+        throw signError ?? new Error('Failed to get signed URL.');
+      }
+
+      // Notify backend to process the meeting
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL as string;
+      const response = await fetch(`${apiUrl}/process-meeting`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audio_url: signedData.signedUrl,
+          meeting_id: meetingId,
+          push_token: pushToken,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Backend responded with ${response.status}`);
+      }
+
+      recordingRef.current = null;
+      setState('idle');
+    } catch (err) {
+      console.error('stopRecording error:', err);
+      if (Platform.OS === 'android') {
+        RecordingServiceModule?.stop();
+      }
+      KeepAwake.deactivateKeepAwake('recording');
+      setError('Failed to upload or process recording.');
+      recordingRef.current = null;
+      setState('idle');
+    }
+  }, []);
+
+  // Keep ref updated so the NativeEventEmitter stop_requested handler can call it
+  useEffect(() => {
+    stopRecordingRef.current = stopRecording;
+  }, [stopRecording]);
+
+  return { state, error, startRecording, pauseRecording, resumeRecording, stopRecording };
 }

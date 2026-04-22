@@ -12,31 +12,41 @@ import { registerForPushNotifications } from '../../lib/notifications';
 import { useRecording } from '../../hooks/useRecording';
 
 export default function HomeScreen() {
-  const { state, error, startRecording, stopRecording } = useRecording();
+  const { state, error, startRecording, pauseRecording, resumeRecording, stopRecording } = useRecording();
   const [elapsed, setElapsed] = useState(0);
   const [pushToken, setPushToken] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startTimeRef = useRef<number | null>(null);
+  // Wall-clock time when the current recording segment started
+  const segmentStartRef = useRef<number | null>(null);
+  // Total seconds accumulated from all completed segments (before current one)
+  const accumulatedRef = useRef(0);
+  // meetingId generated at start time so notification-triggered stop can use it
+  const meetingIdRef = useRef<string>('');
 
   // Fetch Expo push token once on mount
   useEffect(() => {
     registerForPushNotifications().then(setPushToken);
   }, []);
 
-  // Timer based on wall-clock time so it stays accurate after backgrounding
+  // Timer: accumulates across pause/resume cycles
   useEffect(() => {
     if (state === 'recording') {
-      startTimeRef.current = Date.now();
+      segmentStartRef.current = Date.now();
       intervalRef.current = setInterval(() => {
-        if (startTimeRef.current) {
-          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+        if (segmentStartRef.current != null) {
+          setElapsed(
+            accumulatedRef.current +
+              Math.floor((Date.now() - segmentStartRef.current) / 1000)
+          );
         }
       }, 1000);
 
-      // When app comes back to foreground, recalculate elapsed immediately
       const sub = AppState.addEventListener('change', (nextState) => {
-        if (nextState === 'active' && startTimeRef.current) {
-          setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+        if (nextState === 'active' && segmentStartRef.current != null) {
+          setElapsed(
+            accumulatedRef.current +
+              Math.floor((Date.now() - segmentStartRef.current) / 1000)
+          );
         }
       });
 
@@ -44,10 +54,22 @@ export default function HomeScreen() {
         if (intervalRef.current) clearInterval(intervalRef.current);
         sub.remove();
       };
-    } else {
+    } else if (state === 'paused') {
+      // Freeze the timer: commit current segment to accumulated
+      if (segmentStartRef.current != null) {
+        accumulatedRef.current +=
+          Math.floor((Date.now() - segmentStartRef.current) / 1000);
+        segmentStartRef.current = null;
+      }
       if (intervalRef.current) clearInterval(intervalRef.current);
-      startTimeRef.current = null;
-      setElapsed(0);
+    } else {
+      // idle or uploading: reset everything
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (state === 'idle') {
+        segmentStartRef.current = null;
+        accumulatedRef.current = 0;
+        setElapsed(0);
+      }
     }
   }, [state]);
 
@@ -56,12 +78,20 @@ export default function HomeScreen() {
     if (error) Alert.alert('Error', error);
   }, [error]);
 
-  const handlePress = async () => {
+  const handleRecordPress = async () => {
     if (state === 'idle') {
-      await startRecording();
-    } else if (state === 'recording') {
-      const meetingId = Crypto.randomUUID();
-      await stopRecording(meetingId, pushToken ?? '');
+      meetingIdRef.current = Crypto.randomUUID();
+      await startRecording(meetingIdRef.current, pushToken ?? '');
+    } else if (state === 'recording' || state === 'paused') {
+      await stopRecording();
+    }
+  };
+
+  const handlePauseResumePress = async () => {
+    if (state === 'recording') {
+      await pauseRecording();
+    } else if (state === 'paused') {
+      await resumeRecording();
     }
   };
 
@@ -71,31 +101,50 @@ export default function HomeScreen() {
     return `${m}:${s}`;
   };
 
+  const isActive = state === 'recording' || state === 'paused';
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Meeting Notes</Text>
 
-      {state === 'recording' && (
-        <Text style={styles.timer}>{formatTime(elapsed)}</Text>
+      {isActive && (
+        <Text style={[styles.timer, state === 'paused' && styles.timerPaused]}>
+          {formatTime(elapsed)}
+        </Text>
       )}
 
       {state === 'uploading' && (
         <Text style={styles.status}>Uploading & processing…</Text>
       )}
 
+      {/* Pause / Resume button — visible while recording or paused */}
+      {isActive && (
+        <TouchableOpacity
+          style={[styles.button, styles.buttonSecondary]}
+          onPress={handlePauseResumePress}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.buttonText}>
+            {state === 'recording' ? 'Pause' : 'Resume'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Start / Stop button */}
       <TouchableOpacity
         style={[
           styles.button,
-          state === 'recording' && styles.buttonRecording,
+          isActive && styles.buttonRecording,
           state === 'uploading' && styles.buttonDisabled,
         ]}
-        onPress={handlePress}
+        onPress={handleRecordPress}
         disabled={state === 'uploading'}
         activeOpacity={0.8}
       >
         <Text style={styles.buttonText}>
           {state === 'idle' && 'Start Recording'}
           {state === 'recording' && 'Stop Recording'}
+          {state === 'paused' && 'Stop Recording'}
           {state === 'uploading' && 'Processing…'}
         </Text>
       </TouchableOpacity>
@@ -104,6 +153,13 @@ export default function HomeScreen() {
         <View style={styles.recordingIndicator}>
           <View style={styles.dot} />
           <Text style={styles.recordingText}>Recording in progress</Text>
+        </View>
+      )}
+
+      {state === 'paused' && (
+        <View style={styles.recordingIndicator}>
+          <View style={[styles.dot, styles.dotPaused]} />
+          <Text style={[styles.recordingText, styles.pausedText]}>Recording paused</Text>
         </View>
       )}
     </View>
@@ -132,6 +188,9 @@ const styles = StyleSheet.create({
     color: '#e53e3e',
     marginBottom: 32,
   },
+  timerPaused: {
+    color: '#ed8936',
+  },
   status: {
     fontSize: 16,
     color: '#718096',
@@ -139,14 +198,20 @@ const styles = StyleSheet.create({
   },
   button: {
     backgroundColor: '#3182ce',
-    paddingHorizontal: 48,
+    width: 240,
     paddingVertical: 20,
     borderRadius: 50,
+    alignItems: 'center',
     shadowColor: '#3182ce',
     shadowOpacity: 0.4,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
+    marginBottom: 16,
+  },
+  buttonSecondary: {
+    backgroundColor: '#ed8936',
+    shadowColor: '#ed8936',
   },
   buttonRecording: {
     backgroundColor: '#e53e3e',
@@ -161,18 +226,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  hint: {
-    marginTop: 28,
-    fontSize: 13,
-    color: '#a0aec0',
-    textAlign: 'center',
-    maxWidth: 260,
-    lineHeight: 20,
-  },
   recordingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 28,
+    marginTop: 12,
     gap: 8,
   },
   dot: {
@@ -181,9 +238,15 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: '#e53e3e',
   },
+  dotPaused: {
+    backgroundColor: '#ed8936',
+  },
   recordingText: {
     fontSize: 13,
     color: '#e53e3e',
     fontWeight: '500',
+  },
+  pausedText: {
+    color: '#ed8936',
   },
 });
