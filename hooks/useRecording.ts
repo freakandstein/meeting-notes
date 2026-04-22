@@ -51,8 +51,29 @@ export function useRecording() {
         playThroughEarpieceAndroid: false,
       });
 
+      // Give iOS time to activate the audio session before preparing recorder
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
       const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
+        Platform.OS === 'ios'
+          ? {
+              // iOS-compatible options: use LinearPCM to avoid AAC session issues
+              isMeteringEnabled: true,
+              android: Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+              ios: {
+                extension: '.wav',
+                outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+                audioQuality: Audio.IOSAudioQuality.HIGH,
+                sampleRate: 44100,
+                numberOfChannels: 1,
+                bitRate: 128000,
+                linearPCMBitDepth: 16,
+                linearPCMIsBigEndian: false,
+                linearPCMIsFloat: false,
+              },
+              web: Audio.RecordingOptionsPresets.HIGH_QUALITY.web,
+            }
+          : Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
 
       recordingRef.current = recording;
@@ -103,7 +124,9 @@ export function useRecording() {
         if (!fileInfo.exists) throw new Error('Recording file not found.');
 
         // Upload to Supabase Storage
-        const filePath = `meetings/${meetingId}.m4a`;
+        const ext = Platform.OS === 'ios' ? 'wav' : 'm4a';
+        const contentType = Platform.OS === 'ios' ? 'audio/wav' : 'audio/m4a';
+        const filePath = `meetings/${meetingId}.${ext}`;
         const base64 = await FileSystem.readAsStringAsync(uri, {
           encoding: FileSystem.EncodingType.Base64,
         });
@@ -112,7 +135,7 @@ export function useRecording() {
         const { error: uploadError } = await supabase.storage
           .from('audio_meeting_notes')
           .upload(filePath, arrayBuffer, {
-            contentType: 'audio/m4a',
+            contentType,
             upsert: false,
           });
 
