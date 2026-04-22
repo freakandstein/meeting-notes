@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -6,63 +5,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useLocalSearchParams, useNavigation } from 'expo-router';
-import { supabase } from '../../lib/supabase';
-import { loadMeetingsFromCache, upsertMeetingInCache } from '../../lib/meetingStorage';
-import type { Meeting } from '../../types';
-
-// Supabase timestamps may lack 'Z' suffix — ensure they're parsed as UTC
-function parseSupabaseDate(ts: string): Date {
-  return new Date(ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z');
-}
+import { useLocalSearchParams } from 'expo-router';
+import { useMeeting } from '../../hooks/useMeeting';
+import { parseSupabaseDate } from '../../lib/dateUtils';
 
 export default function MeetingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const navigation = useNavigation();
-  const [meeting, setMeeting] = useState<Meeting | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!id) return;
-
-    // Load from cache first for instant display
-    loadMeetingsFromCache().then((cached) => {
-      const found = cached.find((m) => m.id === id);
-      if (found) {
-        setMeeting(found);
-        setLoading(false);
-        navigation.setOptions({
-          title: parseSupabaseDate(found.created_at).toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-          }),
-        });
-      }
-    });
-
-    // Fetch from network and update cache
-    supabase
-      .from('meetings')
-      .select('*')
-      .eq('id', id)
-      .single()
-      .then(({ data, error }) => {
-        if (!error && data) {
-          const m = data as Meeting;
-          setMeeting(m);
-          upsertMeetingInCache(m);
-          navigation.setOptions({
-            title: parseSupabaseDate(m.created_at).toLocaleDateString(undefined, {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-            }),
-          });
-        }
-        setLoading(false);
-      });
-  }, [id]);
+  const { meeting, loading } = useMeeting(id);
 
   if (loading) {
     return (

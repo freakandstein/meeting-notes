@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  AppState,
+  DeviceEventEmitter,
+  NativeEventEmitter,
+  NativeModules,
+  Platform,
+} from 'react-native';
+import {
   Audio,
   InterruptionModeAndroid,
   InterruptionModeIOS,
 } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as KeepAwake from 'expo-keep-awake';
-import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 const { RecordingServiceModule, LiveActivityModule } = NativeModules;
@@ -28,14 +34,91 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
 export function useRecording() {
   const [state, setState] = useState<RecordingState>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
   const recordingRef = useRef<Audio.Recording | null>(null);
   // Stored at start time so pause/resume handlers always have access
   const meetingIdRef = useRef<string>('');
   const pushTokenRef = useRef<string>('');
-  // Mutable ref so the NativeEventEmitter listener can always call the latest stopRecording
+  // Mutable ref so the NativeEventEmitter stop_requested handler can call the latest stopRecording
   const stopRecordingRef = useRef<(() => void) | null>(null);
 
-  // Android: listen to native events from the foreground service (pause/resume
+  // Timer refs — wall-clock segment tracking for accurate elapsed across pause/resume
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const segmentStartRef = useRef<number | null>(null);
+  const accumulatedRef = useRef(0);
+
+  // Timer: accumulates elapsed time across pause/resume cycles
+  useEffect(() => {
+    if (state === 'recording') {
+      segmentStartRef.current = Date.now();
+      intervalRef.current = setInterval(() => {
+        if (segmentStartRef.current != null) {
+          setElapsed(
+            accumulatedRef.current +
+              Math.floor((Date.now() - segmentStartRef.current) / 1000)
+          );
+        }
+      }, 1000);
+
+      // Re-sync elapsed when app is foregrounded after being backgrounded
+      const sub = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active' && segmentStartRef.current != null) {
+          setElapsed(
+            accumulatedRef.current +
+              Math.floor((Date.now() - segmentStartRef.current) / 1000)
+          );
+        }
+      });
+
+      return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        sub.remove();
+      };
+    } else if (state === 'paused') {
+      // Commit current segment duration before freezing the timer
+      if (segmentStartRef.current != null) {
+        accumulatedRef.current += Math.floor(
+          (Date.now() - segmentStartRef.current) / 1000
+        );
+        segmentStartRef.current = null;
+      }
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (state === 'idle') {
+        segmentStartRef.current = null;
+        accumulatedRef.current = 0;
+        setElapsed(0);
+      }
+    }
+  }, [state]);
+
+  // iOS: sync elapsed time + pause state to Live Activity every tick
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    if (state === 'recording') {
+      LiveActivityModule?.updateActivity(false, elapsed);
+    } else if (state === 'paused') {
+      LiveActivityModule?.updateActivity(true, elapsed);
+    }
+  }, [elapsed, state]);
+
+  // iOS: handle Pause/Resume/Stop button taps from the Live Activity
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const sub = DeviceEventEmitter.addListener(
+      'liveActivityAction',
+      ({ action }: { action: string }) => {
+        if (action === 'pause') pauseRecording();
+        else if (action === 'resume') resumeRecording();
+        else if (action === 'stop') stopRecordingRef.current?.();
+      }
+    );
+    return () => sub.remove();
+  }, []);
+
+  // Android: listen to native events from the foreground service (pause/resume/stop
   // initiated by notification action buttons while the app is backgrounded).
   useEffect(() => {
     if (Platform.OS !== 'android' || !RecordingServiceModule) return;
@@ -60,7 +143,6 @@ export function useRecording() {
             console.warn('resumeAsync error', e);
           }
         } else if (nativeState === 'stop_requested') {
-          // Trigger the full stop+upload flow via a ref callback
           stopRecordingRef.current?.();
         }
       }
@@ -135,9 +217,6 @@ export function useRecording() {
     }
   }, []);
 
-  /**
-   * Pauses the active recording (also updates the notification action button).
-   */
   const pauseRecording = useCallback(async () => {
     const recording = recordingRef.current;
     if (!recording) return;
@@ -146,18 +225,12 @@ export function useRecording() {
       if (Platform.OS === 'android') {
         RecordingServiceModule?.pauseRequest();
       }
-      if (Platform.OS === 'ios') {
-        LiveActivityModule?.updateActivity(true, 0);
-      }
       setState('paused');
     } catch (err) {
       console.warn('pauseRecording error:', err);
     }
   }, []);
 
-  /**
-   * Resumes a paused recording.
-   */
   const resumeRecording = useCallback(async () => {
     const recording = recordingRef.current;
     if (!recording) return;
@@ -165,9 +238,6 @@ export function useRecording() {
       await recording.startAsync();
       if (Platform.OS === 'android') {
         RecordingServiceModule?.resumeRequest();
-      }
-      if (Platform.OS === 'ios') {
-        LiveActivityModule?.updateActivity(false, 0);
       }
       setState('recording');
     } catch (err) {
@@ -277,5 +347,5 @@ export function useRecording() {
     stopRecordingRef.current = stopRecording;
   }, [stopRecording]);
 
-  return { state, error, startRecording, pauseRecording, resumeRecording, stopRecording };
+  return { state, error, elapsed, startRecording, pauseRecording, resumeRecording, stopRecording };
 }

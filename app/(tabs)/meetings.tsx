@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,20 +8,9 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from 'expo-router';
-import * as Notifications from 'expo-notifications';
-import { supabase } from '../../lib/supabase';
-import {
-  loadMeetingsFromCache,
-  saveMeetingsToCache,
-} from '../../lib/meetingStorage';
-import { getCachedPushToken } from '../../lib/notifications';
+import { useMeetings } from '../../hooks/useMeetings';
+import { parseSupabaseDate } from '../../lib/dateUtils';
 import type { Meeting } from '../../types';
-
-// Supabase timestamps may lack 'Z' suffix — ensure they're parsed as UTC
-function parseSupabaseDate(ts: string): Date {
-  return new Date(ts.endsWith('Z') || ts.includes('+') ? ts : ts + 'Z');
-}
 
 const STATUS_COLOR: Record<Meeting['status'], string> = {
   processing: '#d69e2e',
@@ -32,60 +20,7 @@ const STATUS_COLOR: Record<Meeting['status'], string> = {
 
 export default function MeetingsScreen() {
   const router = useRouter();
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const fetchMeetings = useCallback(async () => {
-    const pushToken = await getCachedPushToken();
-    if (!pushToken) {
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-    const { data, error } = await supabase
-      .from('meetings')
-      .select('*')
-      .eq('push_token', pushToken)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('fetchMeetings error:', JSON.stringify(error));
-    }
-    if (!error && data) {
-      const meetings = data as Meeting[];
-      setMeetings(meetings);
-      await saveMeetingsToCache(meetings);
-    }
-    setLoading(false);
-    setRefreshing(false);
-  }, []);
-
-  useEffect(() => {
-    // Show cache immediately, then refresh from network
-    loadMeetingsFromCache().then((cached) => {
-      if (cached.length > 0) {
-        setMeetings(cached);
-        setLoading(false);
-      }
-    });
-    fetchMeetings();
-  }, [fetchMeetings]);
-
-  // Refresh when screen comes into focus (e.g. user tapped notification)
-  useFocusEffect(
-    useCallback(() => {
-      fetchMeetings();
-    }, [fetchMeetings])
-  );
-
-  // Auto-refresh list when a push notification arrives (foreground)
-  useEffect(() => {
-    const sub = Notifications.addNotificationReceivedListener(() => {
-      fetchMeetings();
-    });
-    return () => sub.remove();
-  }, [fetchMeetings]);
+  const { meetings, loading, refreshing, refresh } = useMeetings();
 
   if (loading) {
     return (
@@ -106,10 +41,7 @@ export default function MeetingsScreen() {
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            fetchMeetings();
-          }}
+          onRefresh={refresh}
         />
       }
       ListEmptyComponent={

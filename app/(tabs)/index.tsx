@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  AppState,
-  DeviceEventEmitter,
-  NativeModules,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,98 +8,22 @@ import {
 } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { registerForPushNotifications } from '../../lib/notifications';
+import { formatDuration } from '../../lib/dateUtils';
 import { useRecording } from '../../hooks/useRecording';
 
 export default function HomeScreen() {
-  const { state, error, startRecording, pauseRecording, resumeRecording, stopRecording } = useRecording();
-  const [elapsed, setElapsed] = useState(0);
+  const { state, error, elapsed, startRecording, pauseRecording, resumeRecording, stopRecording } =
+    useRecording();
   const [pushToken, setPushToken] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Wall-clock time when the current recording segment started
-  const segmentStartRef = useRef<number | null>(null);
-  // Total seconds accumulated from all completed segments (before current one)
-  const accumulatedRef = useRef(0);
-  // meetingId generated at start time so notification-triggered stop can use it
   const meetingIdRef = useRef<string>('');
 
-  // Fetch Expo push token once on mount
   useEffect(() => {
     registerForPushNotifications().then(setPushToken);
   }, []);
 
-  // Timer: accumulates across pause/resume cycles
-  useEffect(() => {
-    if (state === 'recording') {
-      segmentStartRef.current = Date.now();
-      intervalRef.current = setInterval(() => {
-        if (segmentStartRef.current != null) {
-          setElapsed(
-            accumulatedRef.current +
-              Math.floor((Date.now() - segmentStartRef.current) / 1000)
-          );
-        }
-      }, 1000);
-
-      const sub = AppState.addEventListener('change', (nextState) => {
-        if (nextState === 'active' && segmentStartRef.current != null) {
-          setElapsed(
-            accumulatedRef.current +
-              Math.floor((Date.now() - segmentStartRef.current) / 1000)
-          );
-        }
-      });
-
-      return () => {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        sub.remove();
-      };
-    } else if (state === 'paused') {
-      // Freeze the timer: commit current segment to accumulated
-      if (segmentStartRef.current != null) {
-        accumulatedRef.current +=
-          Math.floor((Date.now() - segmentStartRef.current) / 1000);
-        segmentStartRef.current = null;
-      }
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    } else {
-      // idle or uploading: reset everything
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (state === 'idle') {
-        segmentStartRef.current = null;
-        accumulatedRef.current = 0;
-        setElapsed(0);
-      }
-    }
-  }, [state]);
-
-  // iOS: sync elapsed time to Live Activity every second
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    if (state === 'recording') {
-      NativeModules.LiveActivityModule?.updateActivity(false, elapsed);
-    } else if (state === 'paused') {
-      NativeModules.LiveActivityModule?.updateActivity(true, elapsed);
-    }
-  }, [elapsed, state]);
-
-  // Surface errors to the user
   useEffect(() => {
     if (error) Alert.alert('Error', error);
   }, [error]);
-
-  // iOS Live Activity button actions (pause/resume/stop deep links)
-  useEffect(() => {
-    if (Platform.OS !== 'ios') return;
-    const sub = DeviceEventEmitter.addListener(
-      'liveActivityAction',
-      ({ action }: { action: string }) => {
-        if (action === 'pause') pauseRecording();
-        else if (action === 'resume') resumeRecording();
-        else if (action === 'stop') stopRecording();
-      }
-    );
-    return () => sub.remove();
-  }, [pauseRecording, resumeRecording, stopRecording]);
 
   const handleRecordPress = async () => {
     if (state === 'idle') {
@@ -122,12 +42,6 @@ export default function HomeScreen() {
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
   const isActive = state === 'recording' || state === 'paused';
 
   return (
@@ -136,7 +50,7 @@ export default function HomeScreen() {
 
       {isActive && (
         <Text style={[styles.timer, state === 'paused' && styles.timerPaused]}>
-          {formatTime(elapsed)}
+          {formatDuration(elapsed)}
         </Text>
       )}
 
