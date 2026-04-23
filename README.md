@@ -29,6 +29,17 @@ A mobile app that records meetings, transcribes them using OpenAI Whisper, summa
 - Xcode 15+
 - Physical iOS device running iOS 16.2+ (Live Activities & push notifications don't work on simulator)
 
+**Firebase (Push Notifications)**
+
+Both files are **gitignored and must not be committed** — they contain sensitive project credentials.
+Download them from the [Firebase Console](https://console.firebase.google.com) and place them manually:
+
+| File | Location |
+|---|---|
+| `google-services.json` | `android/app/google-services.json` |
+| `GoogleService-Info.plist` | `ios/MeetingNotes/GoogleService-Info.plist` |
+
+
 #### Supabase `meetings` table schema
 
 ```sql
