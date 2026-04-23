@@ -4,9 +4,11 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { useMeetings } from '../../hooks/useMeetings';
 import { parseSupabaseDate } from '../../lib/dateUtils';
@@ -22,6 +24,33 @@ const STATUS_COLOR: Record<Meeting['status'], string> = {
 export default function MeetingsScreen() {
   const router = useRouter();
   const { meetings, loading, refreshing, refresh, error } = useMeetings();
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleQueryChange = (text: string) => {
+    setQuery(text);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (text.trim().length >= 3) {
+      debounceTimer.current = setTimeout(() => setDebouncedQuery(text), 300);
+    } else {
+      setDebouncedQuery('');
+    }
+  };
+
+  useEffect(() => () => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+  }, []);
+
+  const filteredMeetings = debouncedQuery.trim()
+    ? meetings.filter((m) => {
+        const q = debouncedQuery.toLowerCase();
+        return (
+          m.summary?.toLowerCase().includes(q) ||
+          m.transcript?.toLowerCase().includes(q)
+        );
+      })
+    : meetings;
 
   if (loading) {
     return (
@@ -40,23 +69,43 @@ export default function MeetingsScreen() {
   }
 
   return (
-    <FlatList
-      data={meetings}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={[
-        styles.flexGrow,
-        meetings.length === 0 ? styles.emptyContainer : styles.list,
-      ]}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={refresh}
-        />
-      }
+    <View style={styles.container}>
+      {(meetings.length > 0 || query.length > 0) && (
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search transcript or summary…"
+            placeholderTextColor={Colors.faint}
+            value={query}
+            onChangeText={handleQueryChange}
+            clearButtonMode="while-editing"
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+        </View>
+      )}
+      <FlatList
+        data={filteredMeetings}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={[
+          styles.flexGrow,
+          filteredMeetings.length === 0 ? styles.emptyContainer : styles.list,
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refresh}
+          />
+        }
       ListEmptyComponent={
         <View style={styles.centered}>
           <Text style={styles.emptyText}>
-            No meetings yet.{'\n'}Tap Record to start.
+            {debouncedQuery.trim()
+              ? `No results for "${debouncedQuery}".`
+              : query.trim().length > 0 && query.trim().length < 3
+              ? 'Type at least 3 characters to search.'
+              : 'No meetings yet.\nTap Record to start.'}
           </Text>
         </View>
       }
@@ -106,6 +155,7 @@ export default function MeetingsScreen() {
         </TouchableOpacity>
       )}
     />
+    </View>
   );
 }
 
@@ -136,6 +186,24 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     gap: 12,
+  },
+  container: {
+    flex: 1,
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  searchInput: {
+    backgroundColor: Colors.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: Colors.dark,
   },
   card: {
     backgroundColor: Colors.white,
