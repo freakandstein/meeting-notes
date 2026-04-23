@@ -58,7 +58,8 @@ MeetingNotes/
 │   ├── (tabs)/
 │   │   ├── _layout.tsx         # Tab bar layout
 │   │   ├── index.tsx           # Record screen (timer, Pause/Resume/Stop state)
-│   │   └── meetings.tsx        # Meetings list screen
+│   │   └── meetings.tsx        # Meetings list screen — sticky search bar (min 3 chars,
+│   │                           #   300 ms debounce) filtering summary + transcript
 │   └── meeting/
 │       └── [id].tsx            # Meeting detail screen
 │

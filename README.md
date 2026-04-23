@@ -90,8 +90,6 @@ python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 **Android:**
 
 ```bash
-export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-export ANDROID_HOME="$HOME/Library/Android/sdk"
 npx expo run:android
 ```
 
@@ -130,6 +128,19 @@ flowchart LR
 
 ## What I'd Improve With More Time
 
-*(Coming soon)*
+**1. Chunked audio upload with retry**
+Currently the full audio file is uploaded to Supabase Storage in a single request. A large file on a weak mobile connection will fail entirely if interrupted. The fix is multipart/chunked upload — split the file into smaller pieces, upload each independently, and retry only the failed chunks. A more ambitious variant is streaming chunks directly to the backend *during* recording, which would also enable real-time transcription.
+
+**2. Authentication**
+Device identity is tied to the Expo push token, which changes on reinstall or permission revoke — losing all previous meetings. Supabase Auth (even anonymous → upgrade to email/OAuth) would decouple identity from the token and let meetings persist across devices.
+
+**3. Processing status via Realtime**
+The only signal that processing is complete is a push notification. Adding a Supabase Realtime subscription on the `meetings` table would let the UI reflect status changes (`processing → completed`) live, without relying solely on push.
+
+**4. Retry failed meetings**
+If the backend fails mid-process (OpenAI timeout, network error), the meeting stays in `failed` status forever with no recovery path. A retry button on the detail screen — re-triggering `/process-meeting` with the existing audio URL — would make the UX recoverable.
+
+**5. Tests**
+There are no automated tests. The highest-value targets: `useRecording` hook logic (state machine), the `/process-meeting` endpoint (mocked OpenAI + Supabase), and the audio processor orchestration.
 
 ---
